@@ -1,0 +1,2 @@
+tar -xvzf test_files.tar.gz
+./raw_deduplicator test_files

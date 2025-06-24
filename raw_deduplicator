@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# ==============================================================================
+# SCRIPT: clean_jpg_pairs.sh
+#
+# DESCRIPTION:
+#   Searches a directory recursively for RAW image files (.orf, .cr3) that
+#   have a corresponding JPG/JPEG file with the same base name. If a pair
+#   is found, the JPG/JPEG file is deleted.
+#
+# USAGE:
+#   ./clean_jpg_pairs.sh <target_directory> [--dry-run]
+#
+# ARGUMENTS:
+#   target_directory: The directory to start the search from.
+#   --dry-run (optional): If provided, the script will only report which
+#                         files would be deleted without actually deleting them.
+#
+# EXAMPLES:
+#   # Perform a dry run on the 'Photos' directory
+#   ./clean_jpg_pairs.sh /path/to/your/Photos --dry-run
+#
+#   # Actually delete the JPG files in the 'Photos' directory
+#   ./clean_jpg_pairs.sh /path/to/your/Photos
+#
+# ==============================================================================
+
+# --- Configuration & Argument Parsing ---
+
+# Set bash to exit immediately if a command fails
+set -e
+
+# Function to display usage information
+usage() {
+    echo "USAGE: $0 <target_directory> [--dry-run | -d]"
+    echo "  Searches for JPG files that have a matching RAW pair (ORF or CR3) and deletes the JPG."
+    echo
+    echo "ARGUMENTS:"
+    echo "  target_directory : The directory to search in."
+    echo "  --dry-run or -d  : (Optional) Show what would be deleted without taking action."
+    exit 1
+}
+
+# Check for the required directory argument
+if [ -z "$1" ]; then
+    echo "Error: Target directory not specified."
+    usage
+fi
+
+TARGET_DIR="$1"
+DRY_RUN=false
+
+# Check if the second argument is the dry-run flag
+if [ "$2" == "--dry-run" ] || [ "$2" == "-d" ]; then
+    DRY_RUN=true
+fi
+
+# Validate that the target directory exists and is a directory
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Error: Directory '$TARGET_DIR' not found."
+    exit 1
+fi
+
+# --- Main Logic ---
+
+# Enable case-insensitive globbing for finding JPG/JPEG files
+shopt -s nocaseglob
+
+# Initialize counters for the summary
+found_count=0
+deleted_count=0
+
+if [ "$DRY_RUN" = true ]; then
+    echo "--- DRY RUN MODE: No files will be deleted. ---"
+else
+    echo "--- LIVE RUN MODE: Matching JPG files will be deleted. ---"
+fi
+echo "Searching in directory: '$TARGET_DIR'"
+echo
+
+# The core of the script. We find RAW files and then look for their JPG counterparts.
+# Using `find` with `-print0` and `while read -d ''` is the safest way to handle
+# all possible filenames, including those with spaces or special characters.
+find "$TARGET_DIR" -type f \( -iname "*.orf" -o -iname "*.cr3" \) -print0 | while IFS= read -r -d '' raw_file; do
+    # Get the directory path and the base filename without the extension
+    dir_path=$(dirname "$raw_file")
+    base_name=$(basename "${raw_file%.*}")
+
+    # Now, check for the existence of a corresponding JPG or JPEG file
+    # The `nocaseglob` option handles JPG, jpg, JPEG, jpeg, etc.
+    for jpg_file in "$dir_path/$base_name".{jpg,jpeg}; do
+        # The glob will return the pattern itself if no file matches.
+        # So we must check if the file actually exists.
+        if [ -f "$jpg_file" ]; then
+            ((found_count++))
+            if [ "$DRY_RUN" = true ]; then
+                echo "[DRY RUN] Would delete: '$jpg_file' (pair for '$raw_file')"
+            else
+                echo "Deleting: '$jpg_file' (pair for '$raw_file')"
+                # The actual deletion command
+                rm "$jpg_file"
+                ((deleted_count++))
+            fi
+            # Once we've found and processed a jpg/jpeg, we can stop checking for this raw file.
+            break
+        fi
+    done
+done
+
+# Disable case-insensitive globbing
+shopt -u nocaseglob
+
+# --- Summary ---
+echo
+echo "--- Search Complete ---"
+if [ "$DRY_RUN" = true ]; then
+    echo "Summary: Found $found_count JPG/RAW pairs."
+    echo "No files were deleted."
+else
+    echo "Summary: Found $found_count JPG/RAW pairs and deleted $deleted_count JPG files."
+fi
+
+exit 0
